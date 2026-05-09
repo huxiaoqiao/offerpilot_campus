@@ -40,8 +40,8 @@ class ResumeService:
             raise HTTPException(status_code=400, detail="Job has no JD text")
 
         messages = build_rewrite_messages(resume_text, structured_json, jd_text)
-        # chat_structured expects MatchResponse-like schema; we parse ResumeSections separately
-        raw_text = await llm_client.chat(messages)
+        # Use chat() + manual parsing for MiMo LLM compatibility
+        raw_text = await llm_client.chat(messages, max_tokens=4000)
         from app.llm.output_parser import parse_json_output, validate_schema
         data = parse_json_output(raw_text)
         sections = validate_schema(data, ResumeSections)
@@ -169,87 +169,76 @@ class ResumeService:
         contact_line = " | ".join(contact_parts)
 
         # Summary
-        summary_html = f'<p class="summary-text">{sections.summary}</p>' if sections.summary else ""
+        summary_content = sections.summary.get("content", "") if sections.summary else ""
+        summary_html = f'<p class="summary-text">{summary_content}</p>' if summary_content else ""
+
+        # Job intention
+        job_intention_content = sections.job_intention.get("content", "") if sections.job_intention else ""
+        job_intention_html = f'<div class="section"><h2>求职意向</h2><p class="summary-text">{job_intention_content}</p></div>' if job_intention_content else ""
 
         # Skills
-        skills_html = ""
+        skills_list = []
+        skill_changes = []
         if sections.skills:
+            skills_list = sections.skills.get("content", [])
+            skill_changes_raw = sections.skills.get("changes", [])
+            for sc in skill_changes_raw:
+                if hasattr(sc, "model_dump"):
+                    skill_changes.append(sc.model_dump())
+                else:
+                    skill_changes.append(sc)
+
+        skills_html = ""
+        if skills_list:
             tags = "".join(
-                f'<span class="skill-tag">{s}</span>' for s in sections.skills
+                f'<span class="skill-tag">{s}</span>' for s in skills_list
             )
             skills_html = f'<div class="skills-grid">{tags}</div>'
 
-        # Skill changes
+        # Skill changes table
         skill_changes_html = ""
-        if sections.skill_changes:
+        if skill_changes:
             rows = ""
-            for sc in sections.skill_changes:
-                action_label = {"add": "新增", "remove": "移除", "rephrase": "调整"}.get(sc.action, sc.action)
-                before = sc.before or "-"
-                after = sc.after or "-"
-                rows += f"<tr><td>{sc.skill}</td><td>{action_label}</td><td>{before}</td><td>{after}</td><td>{sc.reason}</td></tr>"
+            for sc in skill_changes:
+                rows += f"<tr><td>{sc.get('skill','')}</td><td>{sc.get('action','')}</td><td>{sc.get('reason','')}</td></tr>"
             skill_changes_html = f"""
             <div class="section">
                 <h2>技能变更记录</h2>
                 <table class="changes-table">
-                    <thead><tr><th>技能</th><th>操作</th><th>调整前</th><th>调整后</th><th>原因</th></tr></thead>
+                    <thead><tr><th>技能</th><th>操作</th><th>原因</th></tr></thead>
                     <tbody>{rows}</tbody>
                 </table>
             </div>"""
 
         # Experience
         experience_html = ""
-        if sections.experience:
+        if sections.experiences:
             items = ""
-            for exp in sections.experience:
-                changes_list = "".join(f"<li>{c}</li>" for c in exp.changes) if exp.changes else ""
+            for exp in sections.experiences:
+                rewritten = exp.rewritten if hasattr(exp, "rewritten") else str(exp)
+                changes_list = ""
+                if hasattr(exp, "changes") and exp.changes:
+                    changes_list = "".join(f"<li>{c}</li>" for c in exp.changes)
                 changes_block = f'<ul class="changes-list">{changes_list}</ul>' if changes_list else ""
                 items += f"""
                 <div class="experience-item">
-                    <div class="exp-rewritten">{exp.rewritten}</div>
+                    <div class="exp-rewritten">{rewritten}</div>
                     {changes_block}
                 </div>"""
             experience_html = f'<div class="section"><h2>工作/实习经历</h2>{items}</div>'
 
-        # Projects (STAR format)
-        projects_html = ""
-        if sections.projects:
-            items = ""
-            for proj in sections.projects:
-                title = proj.get("title", proj.get("name", "项目"))
-                star_parts = ""
-                for key, label in [("situation", "情境"), ("task", "任务"), ("action", "行动"), ("result", "结果")]:
-                    val = proj.get(key, "")
-                    if val:
-                        star_parts += f'<div class="star-item"><span class="star-label">{label}：</span>{val}</div>'
-                tech = proj.get("tech_stack", proj.get("technologies", ""))
-                tech_html = f'<div class="tech-stack">技术栈：{tech}</div>' if tech else ""
-                items += f"""
-                <div class="project-item">
-                    <h3>{title}</h3>
-                    {tech_html}
-                    <div class="star-block">{star_parts}</div>
-                </div>"""
-            projects_html = f'<div class="section"><h2>项目经历</h2>{items}</div>'
-
-        # Education
+        # Education (from profile)
         education_html = ""
-        if sections.education:
+        if profile.resume_structured and profile.resume_structured.get("education"):
             items = ""
-            for edu in sections.education:
+            for edu in profile.resume_structured["education"]:
                 school = edu.get("school", "")
                 major = edu.get("major", "")
                 degree = edu.get("degree", "")
-                period = edu.get("period", edu.get("time", ""))
+                period = f"{edu.get('start_date', '')} - {edu.get('end_date', '')}"
                 edu_line = " | ".join(filter(None, [school, major, degree, period]))
                 items += f'<div class="education-item">{edu_line}</div>'
             education_html = f'<div class="section"><h2>教育背景</h2>{items}</div>'
-
-        # Certificates
-        certs_html = ""
-        if sections.certificates:
-            items = "".join(f"<li>{c}</li>" for c in sections.certificates)
-            certs_html = f'<div class="section"><h2>证书与资质</h2><ul class="cert-list">{items}</ul></div>'
 
         # Full HTML
         html = f"""<!DOCTYPE html>
@@ -326,6 +315,7 @@ class ResumeService:
         font-size: 14px;
         color: #334155;
         line-height: 1.7;
+        white-space: pre-wrap;
     }}
     .changes-list {{
         margin-top: 8px;
@@ -333,45 +323,10 @@ class ResumeService:
         font-size: 13px;
         color: #64748b;
     }}
-    .project-item {{
-        margin-bottom: 16px;
-        padding: 12px;
-        background: #f8fafc;
-        border-radius: 6px;
-        border-left: 3px solid #059669;
-    }}
-    .project-item h3 {{
-        font-size: 15px;
-        color: #059669;
-        margin-bottom: 8px;
-    }}
-    .tech-stack {{
-        font-size: 13px;
-        color: #64748b;
-        margin-bottom: 8px;
-    }}
-    .star-block {{
-        font-size: 14px;
-        color: #334155;
-    }}
-    .star-item {{
-        margin-bottom: 4px;
-    }}
-    .star-label {{
-        font-weight: 600;
-        color: #475569;
-    }}
     .education-item {{
         padding: 8px 0;
         font-size: 14px;
         border-bottom: 1px dashed #e2e8f0;
-    }}
-    .cert-list {{
-        padding-left: 20px;
-        font-size: 14px;
-    }}
-    .cert-list li {{
-        margin-bottom: 4px;
     }}
     .changes-table {{
         width: 100%;
@@ -394,7 +349,7 @@ class ResumeService:
         .header h1 {{ font-size: 24pt; }}
         .section h2 {{ font-size: 14pt; }}
         .skill-tag {{ border: 1px solid #999; }}
-        .experience-item, .project-item {{ break-inside: avoid; }}
+        .experience-item {{ break-inside: avoid; }}
         @page {{ size: A4; margin: 15mm; }}
     }}
 </style>
@@ -405,13 +360,12 @@ class ResumeService:
         <h1>{user_name}</h1>
         <div class="contact-info">{contact_line}</div>
     </div>
+    {job_intention_html}
     {summary_html}
     {education_html}
     {skills_html}
     {skill_changes_html}
     {experience_html}
-    {projects_html}
-    {certs_html}
 </div>
 </body>
 </html>"""

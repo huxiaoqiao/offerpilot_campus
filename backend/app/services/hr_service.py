@@ -39,7 +39,10 @@ class HRService:
             raise HTTPException(status_code=400, detail="Job has no JD text")
 
         messages = build_hr_messages(resume_text, jd_text)
-        result = await llm_client.chat_structured(messages, HRResponse)
+        raw_text = await llm_client.chat(messages, max_tokens=4000)
+        from app.llm.output_parser import parse_json_output, validate_schema
+        data = parse_json_output(raw_text)
+        result = validate_schema(data, HRResponse)
 
         record = HRSimulation(
             id=gen_id(),
@@ -47,7 +50,7 @@ class HRService:
             job_id=job_id,
             ats_check=result.ats_check.model_dump() if result.ats_check else None,
             screening_result=result.screening_result.model_dump() if result.screening_result else None,
-            hr_feedback=result.hr_feedback.model_dump() if result.hr_feedback else None,
+            hr_feedback=[f.model_dump() for f in (result.hr_feedback or [])],
         )
         db.add(record)
         await db.commit()
@@ -104,7 +107,7 @@ class HRService:
             job_id=record.job_id,
             ats_check=ATSCheck.model_validate(record.ats_check) if record.ats_check else None,
             screening_result=ScreeningResult.model_validate(record.screening_result) if record.screening_result else None,
-            hr_feedback=HRFeedback.model_validate(record.hr_feedback) if record.hr_feedback else None,
+            hr_feedback=[HRFeedback.model_validate(f) for f in record.hr_feedback] if record.hr_feedback else None,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

@@ -55,14 +55,17 @@ class InterviewService:
             if match_record.opportunity_level:
                 parts.append(f"推荐等级: {match_record.opportunity_level}")
             if match_record.gaps:
-                gap_items = [g.get("item", "") for g in match_record.gaps if isinstance(g, dict)]
+                gap_items = [g.get("jd_requirement", g.get("item", "")) for g in match_record.gaps if isinstance(g, dict)]
                 if gap_items:
                     parts.append(f"主要缺口: {', '.join(gap_items)}")
             if parts:
                 match_summary = "; ".join(parts)
 
         messages = build_interview_messages(resume_text, jd_text, match_summary)
-        result = await llm_client.chat_structured(messages, InterviewResponse)
+        raw_text = await llm_client.chat(messages, max_tokens=6000)
+        from app.llm.output_parser import parse_json_output, validate_schema
+        data = parse_json_output(raw_text)
+        result = validate_schema(data, InterviewResponse)
 
         record = InterviewSet(
             id=gen_id(),
