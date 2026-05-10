@@ -16,6 +16,9 @@ class Application(UUIDMixin, TimestampMixin, Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("user_profiles.id"), nullable=False, index=True)
     job_id: Mapped[str] = mapped_column(String(36), ForeignKey("job_posts.id"), nullable=False, index=True)
 
+    job_title: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    company_name: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+
     status: Mapped[str] = mapped_column(String(50), default="待评估", nullable=False)
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     resume_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

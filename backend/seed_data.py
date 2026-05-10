@@ -243,6 +243,8 @@ SAMPLE_APPLICATION = {
     "id": "demo-app-1",
     "user_id": "demo-profile-xiaolin",
     "job_id": "demo-job-1",
+    "job_title": "产品经理实习生",
+    "company_name": "字节跳动",
     "status": "已评估",
     "match_score": 72,
     "next_action": "优化简历后投递",

@@ -16,7 +16,6 @@ from app.schemas.application import (
     ApplicationResponse,
     ApplicationUpdate,
     BoardStats,
-    TimelineEntry,
 )
 from app.utils.id_utils import gen_id
 
@@ -40,7 +39,7 @@ class BoardService:
         """Create a new application entry."""
         # Try to pull match_score if available
         match_score = data.match_score
-        if match_score is None:
+        if match_score is None and data.job_id and not data.job_id.startswith("manual_"):
             match_result = await db.execute(
                 select(MatchResult).where(
                     MatchResult.user_id == user_id,
@@ -51,24 +50,22 @@ class BoardService:
             if match_record and match_record.total_score is not None:
                 match_score = match_record.total_score
 
-        now = datetime.utcnow()
-        timeline_data = None
-        if data.timeline:
-            timeline_data = [t.model_dump() for t in data.timeline]
-        else:
-            timeline_data = [{"date": now.strftime("%Y-%m-%d"), "action": "创建", "detail": "新建投递记录"}]
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        timeline_data = [{"time": now_str, "action": "创建", "detail": "新建投递记录"}]
 
         app_record = Application(
             id=gen_id(),
             user_id=user_id,
             job_id=data.job_id,
+            job_title=data.job_title,
+            company_name=data.company_name,
             status=data.status,
             match_score=match_score,
             resume_version_id=data.resume_version_id,
             next_action=data.next_action,
             next_action_deadline=data.next_action_deadline,
             notes=data.notes,
-            tags=data.tags,
+            tags=data.tags or [],
             timeline=timeline_data,
         )
         db.add(app_record)
@@ -114,16 +111,18 @@ class BoardService:
         # Validate status transition
         if data.status is not None and data.status != record.status:
             allowed = VALID_STATUS_TRANSITIONS.get(record.status, [])
+            # Also allow any status change from "已拒绝" or "放弃" for flexibility
+            if record.status in ("已拒绝", "放弃"):
+                allowed = [s for s in VALID_STATUS_TRANSITIONS.keys() if s != record.status]
             if data.status not in allowed:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid status transition: '{record.status}' -> '{data.status}'. "
                            f"Allowed: {allowed}",
                 )
-            # Append to timeline
             current_timeline = record.timeline or []
             current_timeline.append({
-                "date": datetime.utcnow().strftime("%Y-%m-%d"),
+                "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
                 "action": f"状态变更: {record.status} -> {data.status}",
                 "detail": f"从{record.status}变更为{data.status}",
             })
@@ -165,21 +164,53 @@ class BoardService:
 
         total = len(records)
         by_status: dict[str, int] = {}
-        upcoming: list[ApplicationResponse] = []
+        scores = []
+        interview_count = 0
+        offer_count = 0
 
-        now = datetime.utcnow()
         for r in records:
             by_status[r.status] = by_status.get(r.status, 0) + 1
-            if r.next_action_deadline and r.next_action_deadline >= now:
-                upcoming.append(ApplicationResponse.model_validate(r))
+            if r.match_score is not None:
+                scores.append(r.match_score)
+            if r.status in ("面试中", "已offer"):
+                interview_count += 1
+            if r.status == "已offer":
+                offer_count += 1
 
-        # Sort upcoming by deadline
-        upcoming.sort(key=lambda x: x.next_action_deadline or datetime.max)
+        applied_count = len([r for r in records if r.status in ("已投递", "面试中", "已offer", "已拒绝")])
+
+        avg_match_score = round(sum(scores) / len(scores), 1) if scores else 0
+        offer_rate = round(offer_count / applied_count, 2) if applied_count > 0 else 0
+        interview_rate = round(interview_count / applied_count, 2) if applied_count > 0 else 0
+
+        # Fetch dimension scores from match results
+        top_dimension_scores: dict[str, float] = {}
+        if records:
+            job_ids = [r.job_id for r in records if r.job_id]
+            if job_ids:
+                match_results = await db.execute(
+                    select(MatchResult).where(
+                        MatchResult.user_id == user_id,
+                        MatchResult.job_id.in_(job_ids),
+                    )
+                )
+                match_records = match_results.scalars().all()
+                dim_totals: dict[str, list[float]] = {}
+                for mr in match_records:
+                    if mr.dimension_scores:
+                        for dim, val in mr.dimension_scores.items():
+                            score = val.get("score", 0) if isinstance(val, dict) else 0
+                            dim_totals.setdefault(dim, []).append(score)
+                for dim, vals in dim_totals.items():
+                    top_dimension_scores[dim] = round(sum(vals) / len(vals), 1)
 
         return BoardStats(
             total=total,
             by_status=by_status,
-            upcoming_deadlines=upcoming,
+            avg_match_score=avg_match_score,
+            offer_rate=offer_rate,
+            interview_rate=interview_rate,
+            top_dimension_scores=top_dimension_scores,
         )
 
 
