@@ -18,14 +18,11 @@ import ScoreBadge from '../components/common/ScoreBadge'
 import EmptyState from '../components/common/EmptyState'
 
 const DIMENSION_LABELS: Record<string, string> = {
-  skill_match: '技能匹配',
-  experience_match: '经历匹配',
-  education_match: '学历匹配',
-  project_match: '项目匹配',
-  culture_match: '文化匹配',
-  technical_depth: '技术深度',
-  soft_skill: '软技能',
-  industry_fit: '行业适配',
+  education: '教育匹配',
+  skills: '技能匹配',
+  experience: '经历匹配',
+  projects: '项目匹配',
+  soft_requirements: '软性要求',
 }
 
 function StrengthChip({ strength }: { strength: string }) {
@@ -79,7 +76,7 @@ export default function MatchPage() {
     fetchMatch(jobId)
   }
 
-  const radarData = currentResult
+  const radarData = currentResult?.dimension_scores
     ? Object.entries(currentResult.dimension_scores).map(([key, val]) => ({
         dimension: DIMENSION_LABELS[key] || key,
         score: val.score,
@@ -142,10 +139,10 @@ export default function MatchPage() {
                     color="primary"
                     sx={{ mt: 0.5, fontWeight: 600 }}
                   />
-                  {currentResult.improvement_actions.length > 0 && (
+                  {currentResult.improvement_actions?.length > 0 && (
                     <Box sx={{ mt: 1 }}>
                       <Typography variant="subtitle2" color="text.secondary">改进建议:</Typography>
-                      {currentResult.improvement_actions.slice(0, 3).map((a, i) => (
+                      {currentResult.improvement_actions?.slice(0, 3).map((a, i) => (
                         <Typography key={i} variant="body2" color="text.secondary">
                           - {a}
                         </Typography>
@@ -186,10 +183,10 @@ export default function MatchPage() {
               <Grid item xs={12} md={4}>
                 <Paper sx={{ p: 2, height: '100%' }}>
                   <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
-                    证据命中 ({currentResult.matched_evidence.length})
+                    证据命中 ({currentResult.matched_evidence?.length || 0})
                   </Typography>
                   <Stack spacing={1.5}>
-                    {currentResult.matched_evidence.map((e, i) => (
+                    {(currentResult.matched_evidence || []).map((e, i) => (
                       <Card key={i} variant="outlined" sx={{ cursor: 'pointer' }}
                         onClick={() => setExpandedEvidence(expandedEvidence === i ? null : i)}
                       >
@@ -224,10 +221,10 @@ export default function MatchPage() {
               <Grid item xs={12} md={4}>
                 <Paper sx={{ p: 2, height: '100%' }}>
                   <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
-                    缺口分析 ({currentResult.gaps.length})
+                    缺口分析 ({currentResult.gaps?.length || 0})
                   </Typography>
                   <Stack spacing={1.5}>
-                    {currentResult.gaps.map((g, i) => (
+                    {(currentResult.gaps || []).map((g, i) => (
                       <Card key={i} variant="outlined">
                         <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
@@ -257,10 +254,10 @@ export default function MatchPage() {
               <Grid item xs={12} md={4}>
                 <Paper sx={{ p: 2, height: '100%' }}>
                   <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
-                    风险提示 ({currentResult.risks.length})
+                    风险提示 ({currentResult.risks?.length || 0})
                   </Typography>
                   <Stack spacing={1.5}>
-                    {currentResult.risks.map((r, i) => (
+                    {(currentResult.risks || []).map((r, i) => (
                       <Card key={i} variant="outlined">
                         <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
