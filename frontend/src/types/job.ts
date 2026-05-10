@@ -23,7 +23,7 @@ export interface JobPost {
 }
 
 export interface JobCreate {
-  jd_text: string
+  jd_raw_text: string
   company_name?: string
   position_title?: string
   source_url?: string

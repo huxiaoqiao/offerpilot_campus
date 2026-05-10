@@ -4,7 +4,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 
 const pathNameMap: Record<string, string> = {
-  profile: '求识画像',
+  profile: '求职画像',
   jobs: '岗位雷达',
   match: '匹配解释',
   resume: '简历改写',

@@ -53,14 +53,14 @@ export default function JobsPage() {
 
   const handleParseSingle = async () => {
     if (!jdText.trim()) return
-    await createJob({ jd_text: jdText.trim() })
+    await createJob({ jd_raw_text: jdText.trim() })
     setJdText('')
   }
 
   const handleBatchImport = async () => {
     const lines = batchText.split('\n').filter((l) => l.trim())
     if (!lines.length) return
-    const jobsData = lines.map((line) => ({ jd_text: line.trim() }))
+    const jobsData = lines.map((line) => ({ jd_raw_text: line.trim() }))
     await batchCreate(jobsData)
     setBatchText('')
     setBatchOpen(false)
